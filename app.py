@@ -13,31 +13,38 @@ with st.sidebar:
 
 @st.cache_data
 def process_data(sales_df, raw_df, me_ref_df, barcode_df):
+    # 🛡️ [무적 방어 1] Sales와 RAW 시트의 컬럼명 앞뒤에 숨은 공백(띄어쓰기) 강제 제거
+    sales_df.columns = sales_df.columns.astype(str).str.strip()
+    raw_df.columns = raw_df.columns.astype(str).str.strip()
+
+    # 🛡️ [무적 방어 2] ME코드 참조 시트: 제목 무시하고 무조건 1열=제품명, 2열=ME코드로 강제 덮어쓰기
+    me_ref_df = me_ref_df.iloc[:, :2]
+    me_ref_df.columns = ['제품명', 'ME코드']
+    # 'ME'로 시작하는 진짜 코드 데이터만 남기고 잡동사니 빈 줄 제거
+    me_ref_df = me_ref_df[me_ref_df['ME코드'].astype(str).str.startswith('ME', na=False)]
+    me_mapping_table = me_ref_df[['제품명', 'ME코드']].drop_duplicates()
+
     # 1. RAW 데이터 물류센터명 한글 변환
     center_mapping = {'ECH4': '이천4', 'KKW3': '경기광주3', 'SIH2': '시흥2', 'YAS1': '양산1'}
     raw_df['점포'] = raw_df['물류센터'].map(center_mapping).fillna(raw_df['물류센터'])
 
-    # 2. RAW에 ME코드 1차 매핑 (제품명 기준)
-    me_mapping_table = me_ref_df[['제품명', 'ME코드']].drop_duplicates()
+    # 2. RAW에 ME코드 매핑 (기존 빈 열이 있으면 삭제 후 다시 매핑)
     if 'ME코드' in raw_df.columns:
         raw_df = raw_df.drop(columns=['ME코드'])
     raw_df = pd.merge(raw_df, me_mapping_table, left_on='SKU명', right_on='제품명', how='left')
     raw_df['ME코드'] = raw_df['ME코드'].fillna('미매핑(참조표확인)')
 
-    # Sales 데이터 컬럼명 통일
-    sales_df.rename(columns={'제품코드': 'ME코드'}, inplace=True)
+    # Sales 데이터 컬럼명 통일 ('제품코드' -> 'ME코드')
+    if '제품코드' in sales_df.columns:
+        sales_df.rename(columns={'제품코드': 'ME코드'}, inplace=True)
 
-    # 3. 바코드 기준으로 동일 상품 묶기 (에러 방어 로직 추가 🛡️)
-    # 엑셀 상단에 빈 줄이 있거나 컬럼명이 '상품코드' 등 다른 이름이어도 무조건 돌아가게 만듭니다.
-    barcode_df = barcode_df.iloc[:, :2] # 무조건 엑셀의 첫 번째(A), 두 번째(B) 열만 가져오기
-    barcode_df.columns = ['ME코드', '바코드'] # 파이썬이 찾을 수 있게 강제로 이름 덮어쓰기
-    
-    # ME코드가 실제로 'ME'로 시작하는 찐 데이터 행만 남기기 (빈 줄이나 '상품코드' 같은 한글 제목 찌꺼기 자동 삭제)
+    # 🛡️ [무적 방어 3] 바코드 참조 시트: 제목 무시하고 무조건 1열=ME코드, 2열=바코드로 강제 덮어쓰기
+    barcode_df = barcode_df.iloc[:, :2]
+    barcode_df.columns = ['ME코드', '바코드']
     barcode_df = barcode_df[barcode_df['ME코드'].astype(str).str.startswith('ME', na=False)]
-    
     barcode_mapping = barcode_df[['ME코드', '바코드']].drop_duplicates()
     
-    # Sales와 RAW 데이터에 각각 바코드 붙이기
+    # 3. Sales와 RAW 데이터에 각각 바코드 붙이기
     sales_df = pd.merge(sales_df, barcode_mapping, on='ME코드', how='left')
     raw_df = pd.merge(raw_df, barcode_mapping, on='ME코드', how='left')
 
@@ -63,7 +70,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
 
     # 7. 비고 작성
     def analyze_difference(row):
-        if row['ME코드'] == '미매핑(참조표확인)':
+        if str(row['ME코드']) == '미매핑(참조표확인)':
             return '❌ ME코드 누락 (참조표 확인)'
         elif row['수량_차액'] != 0:
             return '🚨 수량 불일치'
@@ -74,7 +81,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
 
     merged_df['비고'] = merged_df.apply(analyze_difference, axis=1)
 
-    # 컬럼 보기 좋게 정렬 (통합키=바코드 포함)
+    # 컬럼 보기 좋게 정렬
     final_columns = ['점포', '통합키', 'ME코드', '자사_출고수량', '쿠팡_매입수량', '수량_차액', '자사_매출액', '쿠팡_매입액', '금액_차액', '비고']
     merged_df = merged_df[final_columns].rename(columns={'통합키': '바코드(통합키)', 'ME코드': '대표 ME코드'})
     return merged_df
