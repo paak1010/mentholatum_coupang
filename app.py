@@ -13,33 +13,45 @@ with st.sidebar:
 
 @st.cache_data
 def process_data(sales_df, raw_df, me_ref_df, barcode_df):
-    # 🛡️ [무적 방어 1] Sales와 RAW 시트의 컬럼명 앞뒤에 숨은 공백(띄어쓰기) 강제 제거
+    # 🛡️ [무적 방어 1] 컬럼명 공백 제거 및 숨겨진 중복 컬럼 완전 삭제
     sales_df.columns = sales_df.columns.astype(str).str.strip()
     raw_df.columns = raw_df.columns.astype(str).str.strip()
+    
+    sales_df = sales_df.loc[:, ~sales_df.columns.duplicated()].copy()
+    raw_df = raw_df.loc[:, ~raw_df.columns.duplicated()].copy()
 
-    # 🛡️ [무적 방어 2] ME코드 참조 시트: 제목 무시하고 무조건 1열=제품명, 2열=ME코드로 강제 덮어쓰기
-    me_ref_df = me_ref_df.iloc[:, :2]
+    # 🛡️ [무적 방어 2] 엑셀에 이미 'ME코드' 열이 있다면 충돌 방지를 위해 무조건 강제 삭제!
+    if 'ME코드' in sales_df.columns:
+        sales_df = sales_df.drop(columns=['ME코드'])
+    if 'ME코드' in raw_df.columns:
+        raw_df = raw_df.drop(columns=['ME코드'])
+
+    # Sales 데이터 컬럼명 통일 ('제품코드' -> 'ME코드'로 안전하게 변경)
+    if '제품코드' in sales_df.columns:
+        sales_df.rename(columns={'제품코드': 'ME코드'}, inplace=True)
+
+    # 🛡️ [무적 방어 3] ME코드 참조 시트: 제목 무시하고 무조건 1열=제품명, 2열=ME코드로 강제 덮어쓰기
+    me_ref_df = me_ref_df.iloc[:, :2].copy()
     me_ref_df.columns = ['제품명', 'ME코드']
-    # 'ME'로 시작하는 진짜 코드 데이터만 남기고 잡동사니 빈 줄 제거
     me_ref_df = me_ref_df[me_ref_df['ME코드'].astype(str).str.startswith('ME', na=False)]
     me_mapping_table = me_ref_df[['제품명', 'ME코드']].drop_duplicates()
 
     # 1. RAW 데이터 물류센터명 한글 변환
     center_mapping = {'ECH4': '이천4', 'KKW3': '경기광주3', 'SIH2': '시흥2', 'YAS1': '양산1'}
-    raw_df['점포'] = raw_df['물류센터'].map(center_mapping).fillna(raw_df['물류센터'])
+    if '물류센터' in raw_df.columns:
+        raw_df['점포'] = raw_df['물류센터'].map(center_mapping).fillna(raw_df['물류센터'])
+    else:
+        raw_df['점포'] = '알수없음'
 
-    # 2. RAW에 ME코드 매핑 (기존 빈 열이 있으면 삭제 후 다시 매핑)
-    if 'ME코드' in raw_df.columns:
-        raw_df = raw_df.drop(columns=['ME코드'])
-    raw_df = pd.merge(raw_df, me_mapping_table, left_on='SKU명', right_on='제품명', how='left')
+    # 2. RAW에 ME코드 자동 매핑
+    if 'SKU명' in raw_df.columns:
+        raw_df = pd.merge(raw_df, me_mapping_table, left_on='SKU명', right_on='제품명', how='left')
+    else:
+        raw_df['ME코드'] = None
     raw_df['ME코드'] = raw_df['ME코드'].fillna('미매핑(참조표확인)')
 
-    # Sales 데이터 컬럼명 통일 ('제품코드' -> 'ME코드')
-    if '제품코드' in sales_df.columns:
-        sales_df.rename(columns={'제품코드': 'ME코드'}, inplace=True)
-
-    # 🛡️ [무적 방어 3] 바코드 참조 시트: 제목 무시하고 무조건 1열=ME코드, 2열=바코드로 강제 덮어쓰기
-    barcode_df = barcode_df.iloc[:, :2]
+    # 🛡️ [무적 방어 4] 바코드 참조 시트: 제목 무시하고 1열=ME코드, 2열=바코드로 덮어쓰기
+    barcode_df = barcode_df.iloc[:, :2].copy()
     barcode_df.columns = ['ME코드', '바코드']
     barcode_df = barcode_df[barcode_df['ME코드'].astype(str).str.startswith('ME', na=False)]
     barcode_mapping = barcode_df[['ME코드', '바코드']].drop_duplicates()
