@@ -13,74 +13,83 @@ with st.sidebar:
 
 @st.cache_data
 def process_data(sales_df, raw_df, me_ref_df, barcode_df):
-    # 🛡️ [무적 방어 1] 컬럼명 공백 제거 및 숨겨진 중복 컬럼 완전 삭제
+    # 🛡️ 1. 컬럼명 공백(띄어쓰기) 제거 및 완벽히 똑같은 중복 컬럼 삭제
     sales_df.columns = sales_df.columns.astype(str).str.strip()
     raw_df.columns = raw_df.columns.astype(str).str.strip()
-    
     sales_df = sales_df.loc[:, ~sales_df.columns.duplicated()].copy()
     raw_df = raw_df.loc[:, ~raw_df.columns.duplicated()].copy()
 
-    # 🛡️ [무적 방어 2] 엑셀에 이미 'ME코드' 열이 있다면 충돌 방지를 위해 무조건 강제 삭제!
-    if 'ME코드' in sales_df.columns:
-        sales_df = sales_df.drop(columns=['ME코드'])
+    # 🛡️ 2. Sales 시트: 기존에 수기로 적어둔 '바코드'나 'ME코드'가 있다면 무조건 삭제 (충돌 방지)
+    if '바코드' in sales_df.columns:
+        sales_df = sales_df.drop(columns=['바코드'])
+        
+    if '제품코드' in sales_df.columns:
+        if 'ME코드' in sales_df.columns:
+            sales_df = sales_df.drop(columns=['ME코드']) # 찌꺼기 ME코드 삭제
+        sales_df.rename(columns={'제품코드': 'ME코드'}, inplace=True)
+
+    # 🛡️ 3. RAW 시트: 기존에 수기로 적어둔 '바코드'나 'ME코드'가 있다면 무조건 삭제
+    if '바코드' in raw_df.columns:
+        raw_df = raw_df.drop(columns=['바코드'])
     if 'ME코드' in raw_df.columns:
         raw_df = raw_df.drop(columns=['ME코드'])
 
-    # Sales 데이터 컬럼명 통일 ('제품코드' -> 'ME코드'로 안전하게 변경)
-    if '제품코드' in sales_df.columns:
-        sales_df.rename(columns={'제품코드': 'ME코드'}, inplace=True)
+    # 4. ME코드 참조 시트 덮어쓰기
+    if len(me_ref_df.columns) >= 2:
+        me_ref_df = me_ref_df.iloc[:, :2].copy()
+        me_ref_df.columns = ['제품명', 'ME코드']
+        me_ref_df = me_ref_df[me_ref_df['ME코드'].astype(str).str.startswith('ME', na=False)]
+        me_mapping_table = me_ref_df[['제품명', 'ME코드']].drop_duplicates()
+    else:
+        me_mapping_table = pd.DataFrame(columns=['제품명', 'ME코드'])
 
-    # 🛡️ [무적 방어 3] ME코드 참조 시트: 제목 무시하고 무조건 1열=제품명, 2열=ME코드로 강제 덮어쓰기
-    me_ref_df = me_ref_df.iloc[:, :2].copy()
-    me_ref_df.columns = ['제품명', 'ME코드']
-    me_ref_df = me_ref_df[me_ref_df['ME코드'].astype(str).str.startswith('ME', na=False)]
-    me_mapping_table = me_ref_df[['제품명', 'ME코드']].drop_duplicates()
-
-    # 1. RAW 데이터 물류센터명 한글 변환
+    # 5. RAW 데이터 센터명 변환 및 ME코드 매핑
     center_mapping = {'ECH4': '이천4', 'KKW3': '경기광주3', 'SIH2': '시흥2', 'YAS1': '양산1'}
     if '물류센터' in raw_df.columns:
         raw_df['점포'] = raw_df['물류센터'].map(center_mapping).fillna(raw_df['물류센터'])
     else:
         raw_df['점포'] = '알수없음'
 
-    # 2. RAW에 ME코드 자동 매핑
     if 'SKU명' in raw_df.columns:
         raw_df = pd.merge(raw_df, me_mapping_table, left_on='SKU명', right_on='제품명', how='left')
     else:
         raw_df['ME코드'] = None
     raw_df['ME코드'] = raw_df['ME코드'].fillna('미매핑(참조표확인)')
 
-    # 🛡️ [무적 방어 4] 바코드 참조 시트: 제목 무시하고 1열=ME코드, 2열=바코드로 덮어쓰기
-    barcode_df = barcode_df.iloc[:, :2].copy()
-    barcode_df.columns = ['ME코드', '바코드']
-    barcode_df = barcode_df[barcode_df['ME코드'].astype(str).str.startswith('ME', na=False)]
-    barcode_mapping = barcode_df[['ME코드', '바코드']].drop_duplicates()
+    # 6. 바코드 참조 시트 덮어쓰기 및 양쪽 시트에 바코드 결합
+    if len(barcode_df.columns) >= 2:
+        barcode_df = barcode_df.iloc[:, :2].copy()
+        barcode_df.columns = ['ME코드', '바코드']
+        barcode_df = barcode_df[barcode_df['ME코드'].astype(str).str.startswith('ME', na=False)]
+        barcode_mapping = barcode_df[['ME코드', '바코드']].drop_duplicates()
+    else:
+        barcode_mapping = pd.DataFrame(columns=['ME코드', '바코드'])
     
-    # 3. Sales와 RAW 데이터에 각각 바코드 붙이기
+    # 🌟 드디어 에러 없이 깔끔하게 바코드가 붙습니다!
     sales_df = pd.merge(sales_df, barcode_mapping, on='ME코드', how='left')
     raw_df = pd.merge(raw_df, barcode_mapping, on='ME코드', how='left')
 
-    # [통합키 생성] 바코드가 등록되어 있으면 '바코드'를, 없으면 기존 'ME코드'를 통합키로 사용
+    # [통합키 생성] 바코드가 있으면 바코드, 없으면 기존 ME코드를 사용
     sales_df['통합키'] = sales_df['바코드'].fillna(sales_df['ME코드'])
     raw_df['통합키'] = raw_df['바코드'].fillna(raw_df['ME코드'])
 
-    # 4. 데이터 그룹화 (ME코드가 아닌 '통합키(바코드)' 기준으로 수량/금액 합산)
+    # 7. 데이터 그룹화 (수량/금액 합산)
     sales_grouped = sales_df.groupby(['점포', '통합키'])[['수량', 'Total Amount']].sum().reset_index()
     sales_grouped.rename(columns={'수량': '자사_출고수량', 'Total Amount': '자사_매출액'}, inplace=True)
 
     raw_grouped = raw_df.groupby(['점포', '통합키'])[['수량', '총공급가액']].sum().reset_index()
     raw_grouped.rename(columns={'수량': '쿠팡_매입수량', '총공급가액': '쿠팡_매입액'}, inplace=True)
 
-    # 5. 병합 및 차액 계산
+    # 8. 병합 및 차액 계산
     merged_df = pd.merge(sales_grouped, raw_grouped, on=['점포', '통합키'], how='outer').fillna(0)
     merged_df['수량_차액'] = merged_df['자사_출고수량'] - merged_df['쿠팡_매입수량']
     merged_df['금액_차액'] = merged_df['자사_매출액'] - merged_df['쿠팡_매입액']
 
-    # 6. 결과창에 보여줄 '대표 ME코드' 하나 가져오기
+    # 9. 결과창에 보여줄 '대표 ME코드' 복구
     rep_me_mapping = pd.concat([sales_df[['통합키', 'ME코드']], raw_df[['통합키', 'ME코드']]]).drop_duplicates(subset=['통합키'], keep='first')
     merged_df = pd.merge(merged_df, rep_me_mapping, on='통합키', how='left')
 
-    # 7. 비고 작성
+    # 10. 비고 작성
     def analyze_difference(row):
         if str(row['ME코드']) == '미매핑(참조표확인)':
             return '❌ ME코드 누락 (참조표 확인)'
@@ -93,7 +102,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
 
     merged_df['비고'] = merged_df.apply(analyze_difference, axis=1)
 
-    # 컬럼 보기 좋게 정렬
+    # 컬럼 정렬
     final_columns = ['점포', '통합키', 'ME코드', '자사_출고수량', '쿠팡_매입수량', '수량_차액', '자사_매출액', '쿠팡_매입액', '금액_차액', '비고']
     merged_df = merged_df[final_columns].rename(columns={'통합키': '바코드(통합키)', 'ME코드': '대표 ME코드'})
     return merged_df
