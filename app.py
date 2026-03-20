@@ -27,8 +27,14 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     # Sales 데이터 컬럼명 통일
     sales_df.rename(columns={'제품코드': 'ME코드'}, inplace=True)
 
-    # 3. 바코드 기준으로 동일 상품 묶기 (핵심 로직 🌟)
-    # 바코드 참조 시트에서 중복 제거
+    # 3. 바코드 기준으로 동일 상품 묶기 (에러 방어 로직 추가 🛡️)
+    # 엑셀 상단에 빈 줄이 있거나 컬럼명이 '상품코드' 등 다른 이름이어도 무조건 돌아가게 만듭니다.
+    barcode_df = barcode_df.iloc[:, :2] # 무조건 엑셀의 첫 번째(A), 두 번째(B) 열만 가져오기
+    barcode_df.columns = ['ME코드', '바코드'] # 파이썬이 찾을 수 있게 강제로 이름 덮어쓰기
+    
+    # ME코드가 실제로 'ME'로 시작하는 찐 데이터 행만 남기기 (빈 줄이나 '상품코드' 같은 한글 제목 찌꺼기 자동 삭제)
+    barcode_df = barcode_df[barcode_df['ME코드'].astype(str).str.startswith('ME', na=False)]
+    
     barcode_mapping = barcode_df[['ME코드', '바코드']].drop_duplicates()
     
     # Sales와 RAW 데이터에 각각 바코드 붙이기
@@ -39,7 +45,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     sales_df['통합키'] = sales_df['바코드'].fillna(sales_df['ME코드'])
     raw_df['통합키'] = raw_df['바코드'].fillna(raw_df['ME코드'])
 
-    # 4. 데이터 그룹화 (ME코드가 아닌 '통합키(바코드)' 기준으로 수량/금액 합산!)
+    # 4. 데이터 그룹화 (ME코드가 아닌 '통합키(바코드)' 기준으로 수량/금액 합산)
     sales_grouped = sales_df.groupby(['점포', '통합키'])[['수량', 'Total Amount']].sum().reset_index()
     sales_grouped.rename(columns={'수량': '자사_출고수량', 'Total Amount': '자사_매출액'}, inplace=True)
 
@@ -85,8 +91,6 @@ if uploaded_file:
             sales_df = pd.read_excel(uploaded_file, sheet_name='Sales Report (Coupang)')
             raw_df = pd.read_excel(uploaded_file, sheet_name='RAW')
             me_ref_df = pd.read_excel(uploaded_file, sheet_name='ME코드 참조')
-            
-            # 🔥 새로 추가된 바코드 시트 읽기
             barcode_df = pd.read_excel(uploaded_file, sheet_name='바코드 참조')
 
             # 전처리 실행
@@ -133,8 +137,6 @@ if uploaded_file:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    except ValueError as ve:
-        st.error(f"⚠️ 엑셀 파일 안에 '바코드 참조' 시트가 추가되어 있는지 확인해주세요! (상세 에러: {ve})")
     except Exception as e:
         st.error(f"데이터 처리 중 오류가 발생했습니다. (에러: {e})")
 else:
