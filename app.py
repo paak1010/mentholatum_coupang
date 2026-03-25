@@ -51,7 +51,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("""
     **✔사용방법**
-    : 파일 마지막시트 참고   """)
+    : 파일 마지막 시트 참고   """)
     st.caption("Developed by Jay")
 
 @st.cache_data
