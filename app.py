@@ -50,7 +50,8 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("""
-    **💡 사용 방법 : 쿠팡 서식 파일 마지막 시트 참고**    """)
+    **💡 사용 방법**
+    쿠팡 서식 파일 마지막 시트 참고   """)
     st.caption("Developed by Jay")
 
 @st.cache_data
