@@ -50,11 +50,8 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("""
-    **💡 사용 방법**
-    1. 쿠팡에서 다운로드한 엑셀(Sales, RAW)에
-    2. 'ME코드 참조', '바코드 참조' 시트를 추가한 뒤
-    3. 이 곳에 업로드 해주세요.
-    """)
+    **💡 사용 방법 : 쿠팡 서식 파일 마지막 시트 참고**    """)
+    st.caption("Developed by Jay")
 
 @st.cache_data
 def process_data(sales_df, raw_df, me_ref_df, barcode_df):
