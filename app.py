@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 # 1. 페이지 기본 설정 (가장 먼저 와야 함)
-st.set_page_config(page_title="쿠팡 대사 대시보드", page_icon="📦", layout="wide")
+st.set_page_config(page_title="쿠팡 매입 확인 시스템", page_icon="📦", layout="wide")
 
 # 2. 커스텀 CSS 디자인 주입
 st.markdown("""
