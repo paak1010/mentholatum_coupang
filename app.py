@@ -40,8 +40,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 메인 타이틀
-st.title("🌿 멘소래담 쿠팡 매입/매출 대사 대시보드")
-st.caption("바코드 통합 버전 | 빠르고 정확한 차액 계산 및 검증")
+st.title("🚀 멘소래담 쿠팡 매입 확인 대시보드")
+st.caption("바코드 / ME코드통합 버전 (ver.260325)")
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100) # 귀여운 박스 아이콘 (선택 사항)
