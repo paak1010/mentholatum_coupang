@@ -41,7 +41,7 @@ st.markdown("""
 
 # 메인 타이틀
 st.title("🚀 멘소래담 쿠팡 매입 확인 대시보드")
-st.caption("바코드 / ME코드통합 버전 (ver.260325)")
+st.caption("바코드 / ME코드 통합 버전 (ver.260325)")
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100) # 귀여운 박스 아이콘 (선택 사항)
@@ -50,7 +50,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("""
-    **💡 사용방법**
+    **사용방법**
     : 서식 파일 마지막 시트 참고   """)
     st.caption("Developed by Jay")
 
