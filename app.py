@@ -87,7 +87,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
 
     # 5. RAW 데이터 센터명 변환 및 ME코드 매핑
     center_mapping = {'ECH4': '이천4', 'KKW3': '경기광주3', 'SIH2': '시흥2', 'YAS1': '양산1', 'GOY1':'고양1', 'GWJ2':'전라광주2',
-                      'DAE3':'대구3', 'DON1':'동탄1', 'XRC11':'XRC11(RC)', 'ECH2' : '이천2'}
+                      'DAE3':'대구3', 'DON1':'동탄1', 'XRC11':'XRC11(RC)', 'ECH2' : '이천2', 'SEL1' : '서울'}
     if '물류센터' in raw_df.columns:
         raw_df['점포'] = raw_df['물류센터'].map(center_mapping).fillna(raw_df['물류센터'])
     else:
