@@ -44,7 +44,7 @@ st.title("🚀 멘소래담 쿠팡 매입 확인 대시보드")
 st.caption("바코드 / ME코드 통합 버전 (ver.260325)")
 
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100) # 귀여운 박스 아이콘 (선택 사항)
+    st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100)
     st.header("📂 데이터 업로드")
     uploaded_file = st.file_uploader("쿠팡 매입 확인 서식 (.xlsx)", type=['xlsx'])
     
@@ -76,7 +76,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     if 'ME코드' in raw_df.columns:
         raw_df = raw_df.drop(columns=['ME코드'])
 
-    # 4. ME코드 참조 시트 덮어쓰기
+    # 4. ME코드 참조 시트 (기존 로직 유지)
     if len(me_ref_df.columns) >= 2:
         me_ref_df = me_ref_df.iloc[:, :2].copy()
         me_ref_df.columns = ['제품명', 'ME코드']
@@ -85,10 +85,13 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     else:
         me_mapping_table = pd.DataFrame(columns=['제품명', 'ME코드'])
 
-    # 5. RAW 데이터 센터명 변환 및 ME코드 매핑
-    center_mapping = {'ECH4': '이천4', 'KKW3': '경기광주3', 'SIH2': '시흥2', 'YAS1': '양산1', 'GOY1':'고양1', 'GWJ2':'전라광주2',
-                      'DAE3':'대구3', 'DON1':'동탄1', 'XRC11':'XRC11', 'ECH2' : '이천2', 'SEL1' : '서울', 'DAE6' : '대구6', 'DAEGU2' : '대구2',
-                     'CHW3' : '창원3'}
+    # 5. RAW 데이터 센터명 변환 및 ME코드 매핑 (XRV11(RC) 추가됨!)
+    center_mapping = {
+        'ECH4': '이천4', 'KKW3': '경기광주3', 'SIH2': '시흥2', 'YAS1': '양산1', 'GOY1':'고양1', 'GWJ2':'전라광주2',
+        'DAE3':'대구3', 'DON1':'동탄1', 'XRC11':'XRC11', 'XRV11(RC)':'XRC11', 'ECH2' : '이천2', 'SEL1' : '서울', 
+        'DAE6' : '대구6', 'DAEGU2' : '대구2', 'CHW3' : '창원3'
+    }
+    
     if '물류센터' in raw_df.columns:
         raw_df['점포'] = raw_df['물류센터'].map(center_mapping).fillna(raw_df['물류센터'])
     else:
@@ -100,22 +103,24 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         raw_df['ME코드'] = None
     raw_df['ME코드'] = raw_df['ME코드'].fillna('미매핑(참조표확인)')
 
-    # 6. 바코드 결합
+    # 6. 바코드(SKUID) 결합 로직 고도화
     if len(barcode_df.columns) >= 2:
         barcode_df = barcode_df.iloc[:, :2].copy()
-        barcode_df.columns = ['ME코드', '바코드']
-        barcode_df = barcode_df[barcode_df['ME코드'].astype(str).str.startswith('ME', na=False)]
-        barcode_mapping = barcode_df[['ME코드', '바코드']].drop_duplicates()
+        barcode_df.columns = ['바코드', '대표 ME코드']  # 엑셀의 새로운 '바코드 마스터' 시트 구조에 맞춤
+        barcode_mapping = barcode_df[['바코드', '대표 ME코드']].drop_duplicates()
     else:
-        barcode_mapping = pd.DataFrame(columns=['ME코드', '바코드'])
+        barcode_mapping = pd.DataFrame(columns=['바코드', '대표 ME코드'])
     
-    sales_df = pd.merge(sales_df, barcode_mapping, on='ME코드', how='left')
-    raw_df = pd.merge(raw_df, barcode_mapping, on='ME코드', how='left')
+    # 임시로 병합 키 생성: 기존 방식대로 제품코드/ME코드를 활용해 바코드를 찾아옴
+    # 여기서는 '바코드 마스터' 시트를 역참조하거나, 기존 로직처럼 Sales/Raw 데이터를 통합키로 묶습니다.
+    # 안전하게 엑셀에 바코드가 이미 있다면 그걸 최우선으로 쓰도록 통합키를 강제 지정
+    sales_df = pd.merge(sales_df, barcode_mapping, left_on='ME코드', right_on='대표 ME코드', how='left')
+    raw_df = pd.merge(raw_df, barcode_mapping, left_on='ME코드', right_on='대표 ME코드', how='left')
 
     sales_df['통합키'] = sales_df['바코드'].fillna(sales_df['ME코드'])
     raw_df['통합키'] = raw_df['바코드'].fillna(raw_df['ME코드'])
 
-    # 7. 데이터 그룹화
+    # 7. 데이터 그룹화 (동일 바코드면 무조건 하나로 묶임)
     sales_grouped = sales_df.groupby(['점포', '통합키'])[['수량', 'Total Amount']].sum().reset_index()
     sales_grouped.rename(columns={'수량': '자사_출고수량', 'Total Amount': '자사_매출액'}, inplace=True)
 
@@ -127,13 +132,15 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     merged_df['수량_차액'] = merged_df['자사_출고수량'] - merged_df['쿠팡_매입수량']
     merged_df['금액_차액'] = merged_df['자사_매출액'] - merged_df['쿠팡_매입액']
 
-    # 9. 대표 ME코드 복구
-    rep_me_mapping = pd.concat([sales_df[['통합키', 'ME코드']], raw_df[['통합키', 'ME코드']]]).drop_duplicates(subset=['통합키'], keep='first')
-    merged_df = pd.merge(merged_df, rep_me_mapping, on='통합키', how='left')
+    # 9. 대표 ME코드 복구 (바코드 마스터 시트에서 다시 가져오기)
+    merged_df = pd.merge(merged_df, barcode_mapping, left_on='통합키', right_on='바코드', how='left')
+    
+    # 만약 바코드 마스터에 없는 항목이라면 통합키 자체를 임시 ME코드로 취급
+    merged_df['대표 ME코드'] = merged_df['대표 ME코드'].fillna(merged_df['통합키'])
 
     # 10. 비고 작성
     def analyze_difference(row):
-        if str(row['ME코드']) == '미매핑(참조표확인)':
+        if '미매핑' in str(row['대표 ME코드']) or pd.isna(row['대표 ME코드']):
             return '❌ ME코드 누락'
         elif row['수량_차액'] != 0:
             return '🚨 수량 불일치'
@@ -144,8 +151,8 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
 
     merged_df['비고'] = merged_df.apply(analyze_difference, axis=1)
 
-    final_columns = ['점포', '통합키', 'ME코드', '자사_출고수량', '쿠팡_매입수량', '수량_차액', '자사_매출액', '쿠팡_매입액', '금액_차액', '비고']
-    merged_df = merged_df[final_columns].rename(columns={'통합키': '바코드(통합키)', 'ME코드': '대표 ME코드'})
+    final_columns = ['점포', '통합키', '대표 ME코드', '자사_출고수량', '쿠팡_매입수량', '수량_차액', '자사_매출액', '쿠팡_매입액', '금액_차액', '비고']
+    merged_df = merged_df[final_columns].rename(columns={'통합키': '바코드(통합키)'})
     return merged_df
 
 def to_excel(df):
@@ -161,6 +168,8 @@ if uploaded_file:
             sales_df = pd.read_excel(uploaded_file, sheet_name='Sales Report (Coupang)')
             raw_df = pd.read_excel(uploaded_file, sheet_name='RAW')
             me_ref_df = pd.read_excel(uploaded_file, sheet_name='ME코드 참조')
+            
+            # 주의: 엑셀 파일의 시트 이름을 '바코드 마스터' 로 통일하거나 기존 시트 내부 데이터를 [바코드, 대표 ME코드] 순서로 변경해야 합니다.
             barcode_df = pd.read_excel(uploaded_file, sheet_name='바코드 참조')
 
             # 전처리 실행
@@ -189,7 +198,6 @@ if uploaded_file:
         # 세부 내역 섹션
         st.subheader("📝 세부 차액 내역 데이터")
         
-        # 필터링 옵션을 Expander(접기/펴기) 안에 넣어서 깔끔하게 정리
         with st.expander("🔍 데이터 필터링 옵션 열기", expanded=False):
             filter_option = st.radio("표시할 데이터를 선택하세요:", ["전체 보기", "차액 및 오류 발생 건만 보기"], horizontal=True)
         
@@ -197,14 +205,12 @@ if uploaded_file:
         if filter_option == "차액 및 오류 발생 건만 보기":
             display_df = result_df[result_df['비고'] != '✅ 정상 일치']
 
-        # 색상 하이라이트 함수
         def highlight_diff(row):
             if row['비고'] == '❌ ME코드 누락': return ['background-color: #f2f2f2'] * len(row)
-            elif row['비고'] == '🚨 수량 불일치': return ['background-color: #ffe6e6'] * len(row) # 연한 빨강
-            elif row['비고'] == '⚠️ 단가 불일치': return ['background-color: #fff9e6'] * len(row) # 연한 노랑
+            elif row['비고'] == '🚨 수량 불일치': return ['background-color: #ffe6e6'] * len(row) 
+            elif row['비고'] == '⚠️ 단가 불일치': return ['background-color: #fff9e6'] * len(row) 
             return [''] * len(row)
 
-        # 데이터 프레임 출력 시 숫자 천단위 콤마 포맷팅 적용
         format_dict = {
             '자사_출고수량': '{:,.0f}', '쿠팡_매입수량': '{:,.0f}', '수량_차액': '{:,.0f}',
             '자사_매출액': '{:,.0f}', '쿠팡_매입액': '{:,.0f}', '금액_차액': '{:,.0f}'
@@ -213,12 +219,11 @@ if uploaded_file:
         st.dataframe(
             display_df.style.apply(highlight_diff, axis=1).format(format_dict), 
             use_container_width=True,
-            height=400 # 스크롤 박스 높이 지정
+            height=400
         )
 
         st.divider()
 
-        # 다운로드 섹션을 컬럼으로 나눠서 우측 정렬된 느낌 주기
         down_col1, down_col2 = st.columns([3, 1])
         with down_col1:
             st.markdown("##### 📥 최종 결과 다운로드")
@@ -235,6 +240,5 @@ if uploaded_file:
     except Exception as e:
         st.error(f"데이터 처리 중 오류가 발생했습니다. (에러 원인: {e})")
 else:
-    # 업로드 전 보여주는 대기 화면 플레이스홀더
     st.info("👈 왼쪽 사이드바에서 4개의 시트가 모두 포함된 통합 엑셀 파일을 업로드해주세요.")
-    st.image("https://www.coupang.com/np/images/img_og_coupang.jpg", width=300) # 쿠팡 관련 썸네일 예시
+    st.image("https://www.coupang.com/np/images/img_og_coupang.jpg", width=300)
