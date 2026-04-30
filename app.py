@@ -41,7 +41,7 @@ st.markdown("""
 
 # 메인 타이틀
 st.title("🚀 멘소래담 쿠팡 매입 확인 대시보드")
-st.caption("바코드 / ME코드 통합 버전 (ver.260325)")
+st.caption("바코드 / ME코드 통합 버전 (ver.260430)")
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100)
@@ -62,35 +62,25 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     sales_df = sales_df.loc[:, ~sales_df.columns.duplicated()].copy()
     raw_df = raw_df.loc[:, ~raw_df.columns.duplicated()].copy()
 
-    # 🛡️ 2. Sales 시트 정리
-    if '바코드' in sales_df.columns:
-        sales_df = sales_df.drop(columns=['바코드'])
+    # 🛡️ 2. Sales 시트 정리 (핵심: 바코드를 삭제하지 않고 살려둠!)
     if '제품코드' in sales_df.columns:
-        if 'ME코드' in sales_df.columns:
-            sales_df = sales_df.drop(columns=['ME코드'])
         sales_df.rename(columns={'제품코드': 'ME코드'}, inplace=True)
+    if '바코드' not in sales_df.columns:
+        sales_df['바코드'] = None
+    # 바코드가 실수형(예: 880.0)으로 읽히는 것을 방지
+    sales_df['바코드'] = sales_df['바코드'].astype(str).str.replace(r'\.0$', '', regex=True)
 
-    # 🛡️ 3. RAW 시트 정리
-    if '바코드' in raw_df.columns:
-        raw_df = raw_df.drop(columns=['바코드'])
-    if 'ME코드' in raw_df.columns:
-        raw_df = raw_df.drop(columns=['ME코드'])
+    # 🛡️ 3. RAW 시트 정리 (핵심: SKU ID를 바코드로 통일하고 살려둠!)
+    if 'SKU ID' in raw_df.columns and '바코드' not in raw_df.columns:
+        raw_df.rename(columns={'SKU ID': '바코드'}, inplace=True)
+    if '바코드' not in raw_df.columns:
+        raw_df['바코드'] = None
+    raw_df['바코드'] = raw_df['바코드'].astype(str).str.replace(r'\.0$', '', regex=True)
 
-    # 4. ME코드 참조 시트 덮어쓰기
-    if len(me_ref_df.columns) >= 2:
-        me_ref_df = me_ref_df.iloc[:, :2].copy()
-        me_ref_df.columns = ['제품명', 'ME코드']
-        me_ref_df = me_ref_df[me_ref_df['ME코드'].astype(str).str.startswith('ME', na=False)]
-        me_mapping_table = me_ref_df[['제품명', 'ME코드']].drop_duplicates()
-    else:
-        me_mapping_table = pd.DataFrame(columns=['제품명', 'ME코드'])
-
-    # 🛡️ 5. RAW 데이터 센터명 변환 (XRC11 조건 완벽 포함)
+    # 🛡️ 4. 물류센터 맵핑 및 XRV11(RC) 완벽 통합
     if '물류센터' in raw_df.columns:
-        # 데이터 클리닝
         raw_df['물류센터'] = raw_df['물류센터'].astype(str).str.strip().str.upper()
-        
-        # XRV11이 포함된 모든 데이터를 XRC11로 강제 변경
+        # XRV11이 들어간 건 무조건 XRC11로 강제 치환
         raw_df.loc[raw_df['물류센터'].str.contains('XRV11', na=False), '물류센터'] = 'XRC11'
         
         center_mapping = {
@@ -102,48 +92,69 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     else:
         raw_df['점포'] = '알수없음'
 
-    if 'SKU명' in raw_df.columns:
-        raw_df = pd.merge(raw_df, me_mapping_table, left_on='SKU명', right_on='제품명', how='left')
-    else:
+    # 🛡️ 5. ME코드 매핑 (참조표 기반)
+    if len(me_ref_df.columns) >= 2:
+        me_ref_df = me_ref_df.iloc[:, :2].copy()
+        me_ref_df.columns = ['제품명', 'ME코드']
+        me_mapping_table = me_ref_df[['제품명', 'ME코드']].drop_duplicates()
+        if 'SKU명' in raw_df.columns:
+            raw_df = pd.merge(raw_df, me_mapping_table, left_on='SKU명', right_on='제품명', how='left')
+    
+    if 'ME코드' not in raw_df.columns:
         raw_df['ME코드'] = None
     raw_df['ME코드'] = raw_df['ME코드'].fillna('미매핑(참조표확인)')
 
-    # 🛡️ 6. 바코드 결합 (다중 ME코드를 하나의 바코드로 묶기)
-    # 엑셀의 '바코드 참조' 시트는 A열: ME코드, B열: 바코드 로 작성해주세요.
+    # 🛡️ 6. 스마트 바코드 매핑 (A열, B열 순서 상관없이 자동 감지)
     if len(barcode_df.columns) >= 2:
-        barcode_df = barcode_df.iloc[:, :2].copy()
-        barcode_df.columns = ['ME코드', '바코드']
-        barcode_df = barcode_df[barcode_df['ME코드'].astype(str).str.startswith('ME', na=False)]
-        barcode_mapping = barcode_df[['ME코드', '바코드']].drop_duplicates()
-    else:
-        barcode_mapping = pd.DataFrame(columns=['ME코드', '바코드'])
-    
-    sales_df = pd.merge(sales_df, barcode_mapping, on='ME코드', how='left')
-    raw_df = pd.merge(raw_df, barcode_mapping, on='ME코드', how='left')
+        temp_df = barcode_df.iloc[:, :2].copy()
+        col1, col2 = temp_df.columns[0], temp_df.columns[1]
+        
+        # 어느 열이 ME코드인지 자동 감지 ('ME'로 시작하는 데이터가 있는지 확인)
+        if temp_df[col1].astype(str).str.contains('^ME', na=False, regex=True).any():
+            temp_df.columns = ['ME코드_ref', '바코드_ref']
+        else:
+            temp_df.columns = ['바코드_ref', 'ME코드_ref']
+            
+        temp_df['바코드_ref'] = temp_df['바코드_ref'].astype(str).str.replace(r'\.0$', '', regex=True)
+        ref_mapping = temp_df[['ME코드_ref', '바코드_ref']].drop_duplicates()
+        
+        # 원본 데이터에 바코드가 누락되어 있을 경우에만 매핑표에서 가져와서 채워넣음
+        sales_df = pd.merge(sales_df, ref_mapping, left_on='ME코드', right_on='ME코드_ref', how='left')
+        sales_df['바코드'] = sales_df['바코드'].replace('nan', None).fillna(sales_df['바코드_ref'])
+        
+        raw_df = pd.merge(raw_df, ref_mapping, left_on='ME코드', right_on='ME코드_ref', how='left')
+        raw_df['바코드'] = raw_df['바코드'].replace('nan', None).fillna(raw_df['바코드_ref'])
 
-    # 통합키 설정 (바코드가 있으면 바코드, 없으면 원래 ME코드로 대체)
+    sales_df['바코드'] = sales_df['바코드'].replace('nan', None)
+    raw_df['바코드'] = raw_df['바코드'].replace('nan', None)
+
+    # 🛡️ 7. 통합키 생성 (무조건 바코드 우선, 없으면 ME코드)
     sales_df['통합키'] = sales_df['바코드'].fillna(sales_df['ME코드'])
     raw_df['통합키'] = raw_df['바코드'].fillna(raw_df['ME코드'])
 
-    # 🛡️ 7. 데이터 그룹화 (ME코드를 무시하고 바코드(통합키) 기준으로만 합산!)
+    # 🛡️ 8. 데이터 그룹화 (다중 ME코드 -> 단일 바코드로 병합)
     sales_grouped = sales_df.groupby(['점포', '통합키'])[['수량', 'Total Amount']].sum().reset_index()
     sales_grouped.rename(columns={'수량': '자사_출고수량', 'Total Amount': '자사_매출액'}, inplace=True)
 
     raw_grouped = raw_df.groupby(['점포', '통합키'])[['수량', '총공급가액']].sum().reset_index()
     raw_grouped.rename(columns={'수량': '쿠팡_매입수량', '총공급가액': '쿠팡_매입액'}, inplace=True)
 
-    # 8. 병합 및 차액 계산
+    # 🛡️ 9. 병합 및 차액 계산
     merged_df = pd.merge(sales_grouped, raw_grouped, on=['점포', '통합키'], how='outer').fillna(0)
     merged_df['수량_차액'] = merged_df['자사_출고수량'] - merged_df['쿠팡_매입수량']
     merged_df['금액_차액'] = merged_df['자사_매출액'] - merged_df['쿠팡_매입액']
 
-    # 9. 대표 ME코드 복구 (동일 바코드 중 첫 번째로 매핑된 ME코드를 대표로 가져옴)
-    rep_me_mapping = pd.concat([sales_df[['통합키', 'ME코드']], raw_df[['통합키', 'ME코드']]]).drop_duplicates(subset=['통합키'], keep='first')
-    merged_df = pd.merge(merged_df, rep_me_mapping, on='통합키', how='left')
+    # 🛡️ 10. 대표 ME코드 복구 (정상적인 ME코드 하나만 가져옴)
+    rep_me = pd.concat([sales_df[['통합키', 'ME코드']], raw_df[['통합키', 'ME코드']]])
+    rep_me = rep_me[rep_me['ME코드'] != '미매핑(참조표확인)'].dropna(subset=['ME코드'])
+    rep_me = rep_me.drop_duplicates(subset=['통합키'], keep='first')
+    
+    merged_df = pd.merge(merged_df, rep_me, on='통합키', how='left')
+    merged_df['ME코드'] = merged_df['ME코드'].fillna('미매핑(참조표확인)')
 
-    # 10. 비고 작성
+    # 🛡️ 11. 비고 작성
     def analyze_difference(row):
-        if str(row['ME코드']) == '미매핑(참조표확인)':
+        if str(row['ME코드']) == '미매핑(참조표확인)' and str(row['통합키']).startswith('ME'):
             return '❌ ME코드 누락'
         elif row['수량_차액'] != 0:
             return '🚨 수량 불일치'
@@ -156,6 +167,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
 
     final_columns = ['점포', '통합키', 'ME코드', '자사_출고수량', '쿠팡_매입수량', '수량_차액', '자사_매출액', '쿠팡_매입액', '금액_차액', '비고']
     merged_df = merged_df[final_columns].rename(columns={'통합키': '바코드(통합키)', 'ME코드': '대표 ME코드'})
+    
     return merged_df
 
 def to_excel(df):
@@ -171,7 +183,7 @@ if uploaded_file:
             sales_df = pd.read_excel(uploaded_file, sheet_name='Sales Report (Coupang)')
             raw_df = pd.read_excel(uploaded_file, sheet_name='RAW')
             me_ref_df = pd.read_excel(uploaded_file, sheet_name='ME코드 참조')
-            barcode_df = pd.read_excel(uploaded_file, sheet_name='바코드 참조') # 엑셀에 A열:ME코드, B열:바코드 로 시트 추가 필수!
+            barcode_df = pd.read_excel(uploaded_file, sheet_name='바코드 참조')
 
             # 전처리 실행
             result_df = process_data(sales_df, raw_df, me_ref_df, barcode_df)
@@ -199,7 +211,6 @@ if uploaded_file:
         # 세부 내역 섹션
         st.subheader("📝 세부 차액 내역 데이터")
         
-        # 필터링 옵션을 Expander(접기/펴기) 안에 넣어서 깔끔하게 정리
         with st.expander("🔍 데이터 필터링 옵션 열기", expanded=False):
             filter_option = st.radio("표시할 데이터를 선택하세요:", ["전체 보기", "차액 및 오류 발생 건만 보기"], horizontal=True)
         
@@ -210,11 +221,10 @@ if uploaded_file:
         # 색상 하이라이트 함수
         def highlight_diff(row):
             if row['비고'] == '❌ ME코드 누락': return ['background-color: #f2f2f2'] * len(row)
-            elif row['비고'] == '🚨 수량 불일치': return ['background-color: #ffe6e6'] * len(row) # 연한 빨강
-            elif row['비고'] == '⚠️ 단가 불일치': return ['background-color: #fff9e6'] * len(row) # 연한 노랑
+            elif row['비고'] == '🚨 수량 불일치': return ['background-color: #ffe6e6'] * len(row)
+            elif row['비고'] == '⚠️ 단가 불일치': return ['background-color: #fff9e6'] * len(row)
             return [''] * len(row)
 
-        # 데이터 프레임 출력 시 숫자 천단위 콤마 포맷팅 적용
         format_dict = {
             '자사_출고수량': '{:,.0f}', '쿠팡_매입수량': '{:,.0f}', '수량_차액': '{:,.0f}',
             '자사_매출액': '{:,.0f}', '쿠팡_매입액': '{:,.0f}', '금액_차액': '{:,.0f}'
@@ -223,12 +233,11 @@ if uploaded_file:
         st.dataframe(
             display_df.style.apply(highlight_diff, axis=1).format(format_dict), 
             use_container_width=True,
-            height=400 # 스크롤 박스 높이 지정
+            height=400 
         )
 
         st.divider()
 
-        # 다운로드 섹션을 컬럼으로 나눠서 우측 정렬된 느낌 주기
         down_col1, down_col2 = st.columns([3, 1])
         with down_col1:
             st.markdown("##### 📥 최종 결과 다운로드")
@@ -245,6 +254,5 @@ if uploaded_file:
     except Exception as e:
         st.error(f"데이터 처리 중 오류가 발생했습니다. (에러 원인: {e})")
 else:
-    # 업로드 전 보여주는 대기 화면 플레이스홀더
     st.info("👈 왼쪽 사이드바에서 4개의 시트가 모두 포함된 통합 엑셀 파일을 업로드해주세요.")
     st.image("https://www.coupang.com/np/images/img_og_coupang.jpg", width=300)
