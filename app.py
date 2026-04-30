@@ -35,7 +35,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 멘소래담 쿠팡 매입 확인 대시보드")
-st.caption("바코드 / ME코드 통합 버전 (ver.260501 - 무적 방어 패치)")
+st.caption("바코드 / 특정 ME코드 / 점포 완벽 통합 버전 (ver.260503 - 총 금액 차이 추가)")
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100)
@@ -54,7 +54,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     sales_df = sales_df.loc[:, ~sales_df.columns.duplicated()].copy()
     raw_df = raw_df.loc[:, ~raw_df.columns.duplicated()].copy()
 
-    # 🚨 핵심 픽스: 바코드 빈칸을 '문자열'이 아닌 진짜 '빈칸'으로 클렌징하는 함수
+    # 🚨 핵심 픽스: 바코드 빈칸 클렌징
     def clean_barcode(series):
         s = series.astype(str).str.replace(r'\.0$', '', regex=True)
         s = s.replace({'nan': None, 'None': None, '<NA>': None, '': None})
@@ -74,10 +74,10 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         raw_df['바코드'] = None
     raw_df['바코드'] = clean_barcode(raw_df['바코드'])
 
-    # 🛡️ 4. 점포명 맵핑 및 XRV11 강제 통합
+    # ⭐ 4. 점포명 맵핑 및 XRC11 강제 통합 ⭐
     if '물류센터' in raw_df.columns:
         raw_df['물류센터'] = raw_df['물류센터'].astype(str).str.strip().str.upper()
-        raw_df.loc[raw_df['물류센터'].str.contains('XRV11', na=False), '물류센터'] = 'XRC11'
+        raw_df.loc[raw_df['물류센터'].str.contains('XRC11|XRV11', na=False, regex=True), '물류센터'] = 'XRC11'
         
         center_mapping = {
             'ECH4': '이천4', 'KKW3': '경기광주3', 'SIH2': '시흥2', 'YAS1': '양산1', 'GOY1':'고양1', 
@@ -99,6 +99,11 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         
         raw_df = pd.merge(raw_df, me_mapping, left_on='SKU명', right_on='제품명', how='left')
         raw_df['ME코드'] = raw_df['ME코드'].fillna(raw_df['ME코드_ref'])
+
+    # ⭐ 5-1. 특정 ME코드 강제 통합 ⭐
+    force_me_mapping = {'ME90521MC4': 'ME81921CSA'}
+    sales_df['ME코드'] = sales_df['ME코드'].replace(force_me_mapping)
+    raw_df['ME코드'] = raw_df['ME코드'].replace(force_me_mapping)
 
     # 🛡️ 6. 스마트 바코드 매핑 (A/B열 자동 감지)
     if len(barcode_df.columns) >= 2:
@@ -189,18 +194,29 @@ if uploaded_file:
         st.toast('데이터 대사 작업이 완료되었습니다!', icon='🎉')
 
         st.subheader("📊 바코드 통합 대사 결과 요약")
+        
+        # 요약 데이터 계산
         total_items = len(result_df)
         perfect_match = len(result_df[result_df['비고'] == '✅ 정상 일치'])
         mismatch_qty = len(result_df[result_df['비고'] == '🚨 수량 불일치'])
         mismatch_amt = len(result_df[result_df['비고'] == '⚠️ 단가 불일치'])
         missing_me = len(result_df[result_df['비고'] == '❌ ME코드 누락'])
+        
+        # ⭐ 총 금액 차이 계산 (자사매출액 - 쿠팡매입액 합계)
+        total_diff_amt = result_df['금액_차액'].sum()
 
-        col1, col2, col3, col4, col5 = st.columns(5)
+        # 메트릭 카드 레이아웃 (3열 2행으로 넓게 변경)
+        col1, col2, col3 = st.columns(3)
         col1.metric("전체 대사 건수", f"{total_items:,} 건")
         col2.metric("✅ 정상 일치", f"{perfect_match:,} 건")
-        col3.metric("🚨 수량 차이", f"{mismatch_qty:,} 건")
-        col4.metric("⚠️ 단가 차이", f"{mismatch_amt:,} 건")
-        col5.metric("❌ 매핑 실패", f"{missing_me:,} 건")
+        col3.metric("💰 총 금액 차이 (자사-쿠팡)", f"{total_diff_amt:,.0f} 원")
+
+        st.markdown("<br>", unsafe_allow_html=True) # 줄바꿈 여백
+        
+        col4, col5, col6 = st.columns(3)
+        col4.metric("🚨 수량 불일치", f"{mismatch_qty:,} 건")
+        col5.metric("⚠️ 단가 불일치", f"{mismatch_amt:,} 건")
+        col6.metric("❌ 매핑 실패(누락)", f"{missing_me:,} 건")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
