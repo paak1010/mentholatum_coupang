@@ -35,7 +35,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 멘소래담 쿠팡 매입 확인 대시보드")
-st.caption("바코드 / 특정 ME코드 / 점포 완벽 통합 버전 (ver.260504)")
+st.caption("바코드 / 특정 ME코드 / 점포 완벽 통합 버전 (ver.260505)")
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100)
@@ -70,7 +70,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         raw_df['바코드'] = None
     raw_df['바코드'] = clean_barcode(raw_df['바코드'])
 
-    # ⭐ [수정된 부분 1] Sales 시트의 XRC11도 강제 통합 ⭐
+    # Sales 시트 XRC11 점포 통합
     if '점포' in sales_df.columns:
         sales_df['점포'] = sales_df['점포'].astype(str).str.strip().str.upper()
         sales_df.loc[sales_df['점포'].str.contains('XRC11|XRV11', na=False, regex=True), '점포'] = 'XRC11'
@@ -100,10 +100,11 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         raw_df = pd.merge(raw_df, me_mapping, left_on='SKU명', right_on='제품명', how='left')
         raw_df['ME코드'] = raw_df['ME코드'].fillna(raw_df['ME코드_ref'])
 
-    # ⭐ [수정된 부분 2] 캡처본에서 발견된 어긋난 ME코드 추가 통합 ⭐
+    # ⭐ [수정된 부분] 캡처본에서 발견된 어긋난 ME코드 모두 추가 통합 ⭐
     force_me_mapping = {
         'ME90521MC4': 'ME81921CSA',
-        'ME90621AC9': 'ME90621ACD' # <- 캡처본의 고양/동탄/서울 불일치 해결!
+        'ME90621AC9': 'ME90621ACD',
+        'ME00621A12': 'ME00621AMF'  # <- 새로 추가된 규칙: ME00621A12를 AMF로 합침!
     }
     sales_df['ME코드'] = sales_df['ME코드'].replace(force_me_mapping)
     raw_df['ME코드'] = raw_df['ME코드'].replace(force_me_mapping)
