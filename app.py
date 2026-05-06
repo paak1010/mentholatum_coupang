@@ -35,7 +35,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 멘소래담 쿠팡 매입 확인 대시보드")
-st.caption("바코드 / 특정 ME코드 / 점포 완벽 통합 버전 (ver.260505)")
+st.caption("바코드 / 특정 ME코드 / 점포 완벽 통합 버전 (ver.260506)")
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100)
@@ -100,11 +100,12 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         raw_df = pd.merge(raw_df, me_mapping, left_on='SKU명', right_on='제품명', how='left')
         raw_df['ME코드'] = raw_df['ME코드'].fillna(raw_df['ME코드_ref'])
 
-    # ⭐ [수정된 부분] 캡처본에서 발견된 어긋난 ME코드 모두 추가 통합 ⭐
+    # ⭐ [수정된 부분] 캡처본에서 발견된 어긋난 ME코드 (KK1 -> GTC) 추가 통합 ⭐
     force_me_mapping = {
         'ME90521MC4': 'ME81921CSA',
         'ME90621AC9': 'ME90621ACD',
-        'ME00621A12': 'ME00621AMF'  # <- 새로 추가된 규칙: ME00621A12를 AMF로 합침!
+        'ME00621A12': 'ME00621AMF',
+        'ME90521KK1': 'ME90521GTC'  # <- 새로 추가된 규칙: KK1을 GTC로 합침!
     }
     sales_df['ME코드'] = sales_df['ME코드'].replace(force_me_mapping)
     raw_df['ME코드'] = raw_df['ME코드'].replace(force_me_mapping)
