@@ -100,15 +100,14 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         raw_df = pd.merge(raw_df, me_mapping, left_on='SKU명', right_on='제품명', how='left')
         raw_df['ME코드'] = raw_df['ME코드'].fillna(raw_df['ME코드_ref'])
 
-    # ⭐ [수정된 부분] 캡처본에서 발견된 어긋난 ME코드 (KK1 -> GTC) 추가 통합 ⭐
-   # 기존 코드 라인 62 즈음에 있는 강제 매핑 규칙에 한 줄을 추가해 주세요.
-force_me_mapping = {
-    'ME90521MC4': 'ME81921CSA',
-    'ME90621AC9': 'ME90621ACD',
-    'ME00621A12': 'ME00621AMF',
-    'ME90521KK1': 'ME90521GTC',
-    'ME90621HLK': 'ME90621HLM'  # <--- 이 부분을 추가! (HLK를 HLM으로 통일)
-}
+    # ⭐ [수정된 부분] HLK -> HLM 강제 매핑 추가 ⭐
+    force_me_mapping = {
+        'ME90521MC4': 'ME81921CSA',
+        'ME90621AC9': 'ME90621ACD',
+        'ME00621A12': 'ME00621AMF',
+        'ME90521KK1': 'ME90521GTC',
+        'ME90621HLK': 'ME90621HLM'  # <- 요청하신 HLK 오류 해결을 위한 추가 매핑!
+    }
     sales_df['ME코드'] = sales_df['ME코드'].replace(force_me_mapping)
     raw_df['ME코드'] = raw_df['ME코드'].replace(force_me_mapping)
 
