@@ -107,7 +107,6 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         'ME00621A12': 'ME00621AMF',
         'ME90521KK1': 'ME90521GTC',
         'ME90621HLK': 'ME90621HLM',
-        'ME90521CRB': 'ME00621AMB',
         'ME00621ASE': 'ME00621ASF' # <- 요청하신 HLK 오류 해결을 위한 추가 매핑!
     }
     sales_df['ME코드'] = sales_df['ME코드'].replace(force_me_mapping)
