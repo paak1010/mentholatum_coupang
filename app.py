@@ -35,7 +35,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 멘소래담 쿠팡 매입 확인 대시보드")
-st.caption("바코드 / 특정 ME코드 / 점포 완벽 통합 버전 (ver.260506)")
+st.caption("바코드 / 특정 ME코드 / 점포 완벽 통합 버전 (ver.260506 - 매핑 정상화 패치)")
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100)
@@ -54,7 +54,8 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     raw_df = raw_df.loc[:, ~raw_df.columns.duplicated()].copy()
 
     def clean_barcode(series):
-        s = series.astype(str).str.replace(r'\.0$', '', regex=True)
+        # 바코드 클리닝 시 공백까지 완벽 제거
+        s = series.astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         s = s.replace({'nan': None, 'None': None, '<NA>': None, '': None})
         return s
 
@@ -64,22 +65,17 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         sales_df['바코드'] = None
     sales_df['바코드'] = clean_barcode(sales_df['바코드'])
 
-    # ⭐ [수정1] RAW 데이터의 바코드 컬럼명(SKU번호) 인식 추가
-    if 'SKU번호' in raw_df.columns and '바코드' not in raw_df.columns:
-        raw_df.rename(columns={'SKU번호': '바코드'}, inplace=True)
-    elif 'SKU ID' in raw_df.columns and '바코드' not in raw_df.columns:
-        raw_df.rename(columns={'SKU ID': '바코드'}, inplace=True)
-        
+    # 🚨 전부 불일치 나게 만들었던 SKU번호 강제 매핑 로직 삭제 🚨
+    # RAW 데이터는 무조건 참조표를 통해서만 바코드를 가져오도록 수정
     if '바코드' not in raw_df.columns:
         raw_df['바코드'] = None
     raw_df['바코드'] = clean_barcode(raw_df['바코드'])
 
-    # Sales 시트 XRC11 점포 통합
+    # 점포명 정리 및 XRC11 강제 통합
     if '점포' in sales_df.columns:
         sales_df['점포'] = sales_df['점포'].astype(str).str.strip().str.upper()
         sales_df.loc[sales_df['점포'].str.contains('XRC11|XRV11', na=False, regex=True), '점포'] = 'XRC11'
 
-    # RAW 시트 점포명 맵핑 및 XRC11 강제 통합
     if '물류센터' in raw_df.columns:
         raw_df['물류센터'] = raw_df['물류센터'].astype(str).str.strip().str.upper()
         raw_df.loc[raw_df['물류센터'].str.contains('XRC11|XRV11', na=False, regex=True), '물류센터'] = 'XRC11'
@@ -93,6 +89,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     else:
         raw_df['점포'] = '알수없음'
 
+    # RAW 시트 ME코드 매핑 (참조표 기반)
     if 'ME코드' not in raw_df.columns:
         raw_df['ME코드'] = None
         
@@ -104,18 +101,19 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         raw_df = pd.merge(raw_df, me_mapping, left_on='SKU명', right_on='제품명', how='left')
         raw_df['ME코드'] = raw_df['ME코드'].fillna(raw_df['ME코드_ref'])
 
-    # ⭐ [수정된 부분] HLK -> HLM 강제 매핑 추가 ⭐
+    # 강제 ME 매핑 추가
     force_me_mapping = {
         'ME90521MC4': 'ME81921CSA',
         'ME90621AC9': 'ME90621ACD',
         'ME00621A12': 'ME00621AMF',
         'ME90521KK1': 'ME90521GTC',
         'ME90621HLK': 'ME90621HLM',
-        'ME00621ASE': 'ME00621ASF' # <- 요청하신 HLK 오류 해결을 위한 추가 매핑!
+        'ME00621ASE': 'ME00621ASF' 
     }
     sales_df['ME코드'] = sales_df['ME코드'].replace(force_me_mapping)
     raw_df['ME코드'] = raw_df['ME코드'].replace(force_me_mapping)
 
+    # 바코드 참조 데이터 반영 (여기서만 13자리 바코드를 물고 오도록 처리)
     if len(barcode_df.columns) >= 2:
         bc_df = barcode_df.iloc[:, :2].copy()
         col1 = bc_df.columns[0]
@@ -134,8 +132,9 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
         raw_df = pd.merge(raw_df, bc_mapping, left_on='ME코드', right_on='ME코드_ref', how='left')
         raw_df['바코드'] = raw_df['바코드'].fillna(raw_df['바코드_ref'])
 
-    sales_df['통합키'] = sales_df['바코드'].fillna(sales_df['ME코드']).fillna('키없음')
-    raw_df['통합키'] = raw_df['바코드'].fillna(raw_df['ME코드']).fillna('키없음')
+    # 통합키 생성 (문자열 강제 변환 및 공백 제거로 불일치 원천 차단)
+    sales_df['통합키'] = sales_df['바코드'].fillna(sales_df['ME코드']).fillna('키없음').astype(str).str.strip()
+    raw_df['통합키'] = raw_df['바코드'].fillna(raw_df['ME코드']).fillna('키없음').astype(str).str.strip()
 
     for col in ['수량', 'Total Amount']:
         if col not in sales_df.columns: sales_df[col] = 0
@@ -155,7 +154,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     merged_df['수량_차액'] = merged_df['자사_출고수량'] - merged_df['쿠팡_매입수량']
     merged_df['금액_차액'] = merged_df['자사_매출액'] - merged_df['쿠팡_매입액']
 
-    # ⭐ [수정2] 여러 ME코드가 묶여있을 때 에러 없이 안전하게 텍스트로 합쳐서 보여주는 로직
+    # ME코드 숨김 방지 및 안전한 텍스트 병합 로직
     rep_me = pd.concat([sales_df[['통합키', 'ME코드']], raw_df[['통합키', 'ME코드']]])
     rep_me = rep_me.dropna(subset=['ME코드'])
     rep_me['ME코드'] = rep_me['ME코드'].astype(str)
