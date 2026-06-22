@@ -35,7 +35,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 멘소래담 쿠팡 매입 확인 대시보드")
-st.caption("바코드 / 특정 ME코드 / 점포 완벽 통합 버전 (ver.260506 - 빈칸 블랙홀 제거 패치)")
+st.caption("바코드 / 특정 ME코드 / 점포 완벽 통합 버전 (ver.260506 - 빈칸 및 콤마 오류 제거 패치)")
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3045/3045670.png", width=100)
@@ -129,12 +129,15 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
     sales_df['통합키'] = sales_df['바코드'].fillna(sales_df['ME코드']).fillna('키없음').astype(str).str.strip()
     raw_df['통합키'] = raw_df['바코드'].fillna(raw_df['ME코드']).fillna('키없음').astype(str).str.strip()
 
+    # 🚨 [수정 완료] 금액/수량 데이터 내 콤마(,) 선제거 로직 추가
     for col in ['수량', 'Total Amount']:
         if col not in sales_df.columns: sales_df[col] = 0
+        sales_df[col] = sales_df[col].astype(str).str.replace(',', '', regex=False)
         sales_df[col] = pd.to_numeric(sales_df[col], errors='coerce').fillna(0)
         
     for col in ['수량', '총공급가액']:
         if col not in raw_df.columns: raw_df[col] = 0
+        raw_df[col] = raw_df[col].astype(str).str.replace(',', '', regex=False)
         raw_df[col] = pd.to_numeric(raw_df[col], errors='coerce').fillna(0)
 
     sales_grouped = sales_df.groupby(['점포', '통합키'])[['수량', 'Total Amount']].sum().reset_index()
@@ -180,10 +183,12 @@ def to_excel(df):
 if uploaded_file:
     try:
         with st.spinner('📊 데이터 병합 및 차액 분석을 진행하고 있습니다...'):
-            sales_df = pd.read_excel(uploaded_file, sheet_name='Sales Report (Coupang)')
-            raw_df = pd.read_excel(uploaded_file, sheet_name='RAW')
-            me_ref_df = pd.read_excel(uploaded_file, sheet_name='ME코드 참조')
-            barcode_df = pd.read_excel(uploaded_file, sheet_name='바코드 참조')
+            # 🚨 [수정 완료] pd.ExcelFile()을 활용해 포인터 증발 및 속도 저하 문제 해결
+            xls = pd.ExcelFile(uploaded_file)
+            sales_df = pd.read_excel(xls, sheet_name='Sales Report (Coupang)')
+            raw_df = pd.read_excel(xls, sheet_name='RAW')
+            me_ref_df = pd.read_excel(xls, sheet_name='ME코드 참조')
+            barcode_df = pd.read_excel(xls, sheet_name='바코드 참조')
 
             result_df = process_data(sales_df, raw_df, me_ref_df, barcode_df)
         
