@@ -107,7 +107,7 @@ def process_data(sales_df, raw_df, me_ref_df, barcode_df):
 
     force_me_mapping = {
         'ME90521MC4': 'ME81921CSA', 'ME90621AC9': 'ME90621ACD', 'ME00621A12': 'ME00621AMF',
-        'ME90521KK1': 'ME90521GTC', 'ME90621HLK': 'ME90621HLM', 'ME00621ASE': 'ME00621ASF' 
+        'ME90521KK1': 'ME90521GTC', 'ME90621HLK': 'ME90621HLM', 'ME00621ASE': 'ME00621ASF', 'ME90621FG6' : 'ME90621FG4'
     }
     sales_df['ME코드'] = sales_df['ME코드'].replace(force_me_mapping)
     raw_df['ME코드'] = raw_df['ME코드'].replace(force_me_mapping)
